@@ -18,8 +18,11 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata = {
-  title: "AIRI",
-  description: "AIRI's personal website",
+  metadataBase: new URL("https://www.airi-profile.com"),
+  title: {
+    default: "AIRI",
+    template: "%s | AIRI",
+  },
   icons: {
     icon: [
       {
@@ -27,6 +30,16 @@ export const metadata = {
         type: "image/png",
       },
     ],
+  },
+  description:
+    "AIRI's personal website. 日々の記録、ブログ、プロジェクトを紹介しています。",
+  openGraph: {
+    title: "AIRI",
+    description: "AIRI's Profile",
+    url: "https://www.airi-profile.com",
+    siteName: "AIRI",
+    locale: "ja_JP",
+    type: "website",
   },
 };
 
