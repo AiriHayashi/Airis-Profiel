@@ -131,28 +131,116 @@ function VideoPlayer({ url, caption }) {
 /**
  * 記事ブロックの描画
  */
-function RenderBlock({ block }) {
-  switch (block.type) {
-    case "paragraph": {
-      const text = String(block.text || "").trim();
-      const video = getVideoInfo(text);
 
-      // 段落に動画URLだけが貼られている場合、自動で動画を表示
-      if (video) {
-        return (
-          <VideoPlayer
-            url={text}
-            caption={block.caption}
-          />
-        );
+function RenderLink({ text, href, target }) {
+  if (!href || typeof href !== "string") {
+    return text ?? null;
+  }
+
+  let safeHref;
+
+  try {
+    const url = new URL(href);
+
+    if (!["http:", "https:"].includes(url.protocol)) {
+      return text ?? null;
+    }
+
+    safeHref = url.href;
+  } catch {
+    return text ?? null;
+  }
+
+  return (
+    <a
+      href={safeHref}
+      target={target === "_blank" ? "_blank" : "_self"}
+      rel={target === "_blank" ? "noopener noreferrer" : undefined}
+      className="underline underline-offset-4 decoration-neutral-400 text-neutral-900 hover:opacity-50 transition"
+    >
+      {text ?? safeHref}
+    </a>
+  );
+}
+
+function RenderRichText({ block }) {
+  // marksが存在しない場合は通常の文章
+  if (!Array.isArray(block.marks) || block.marks.length === 0) {
+    return block.text || "";
+  }
+
+  return block.marks.map((mark, index) => {
+    const text = mark.text || "";
+
+    if (!mark.href) {
+      return <span key={index}>{text}</span>;
+    }
+
+    // URLの誤入力を補正
+    const href = mark.href.replace(
+      /^https?:\/\/https?:\/\//i,
+      "https://"
+    );
+
+    let safeUrl;
+
+    try {
+      const url = new URL(href);
+
+      if (!["http:", "https:"].includes(url.protocol)) {
+        return <span key={index}>{text}</span>;
       }
 
-      return (
-        <p className="text-sm leading-8 text-neutral-600 mb-7 whitespace-pre-wrap">
-          {block.text}
-        </p>
-      );
+      safeUrl = url.href;
+    } catch {
+      return <span key={index}>{text}</span>;
     }
+
+    return (
+      <a
+        key={index}
+        href={safeUrl}
+        target={mark.target === "_blank" ? "_blank" : "_self"}
+        rel={
+          mark.target === "_blank"
+            ? "noopener noreferrer"
+            : undefined
+        }
+        className="text-neutral-900 underline underline-offset-4 decoration-neutral-400 hover:opacity-50 transition"
+      >
+        {text}
+      </a>
+    );
+  });
+}
+
+
+function RenderBlock({ block }) {
+  switch (block.type) {
+case "paragraph": {
+  const text =
+    typeof block.text === "string"
+      ? block.text.trim()
+      : "";
+
+  // 動画URLのみの段落は動画として表示
+  const video = getVideoInfo(text);
+
+  if (video && (!block.marks || block.marks.length === 0)) {
+    return (
+      <VideoPlayer
+        url={text}
+        caption={block.caption}
+      />
+    );
+  }
+
+  return (
+    <p className="text-sm leading-8 text-neutral-600 mb-7 whitespace-pre-wrap">
+      <RenderRichText block={block} />
+    </p>
+  );
+}
 
     case "heading": {
       const level = Math.min(6, Math.max(1, block.level || 2));
@@ -264,12 +352,22 @@ function RenderBlock({ block }) {
           </table>
         </div>
       );
-case "ad":
-  return (
-    <AdBlock
-      ad={block.ad}
-    />
-  );
+      case "ad":
+        return (
+         <AdBlock
+          ad={block.ad}
+         />
+       );
+       case "link":
+        return (
+         <p className="text-sm leading-8 text-neutral-600 mb-7">
+           <RenderLink
+           text={block.text}
+           href={block.href}
+           target={block.target}
+           />
+        </p>
+        );
 
     default:
       return null;
