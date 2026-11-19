@@ -4,6 +4,8 @@ import Image from "next/image";
 import Link from "next/link";
 import "./globals.css";
 
+import getData from "@/lib/blog";
+import RandomPopupAd from "@/app/components/RandomPopupAd";
 import Footer from "@/app/components/Footer";
 import MobileMenu from "@/app/components/MobileMenu";
 
@@ -19,10 +21,12 @@ const geistMono = Geist_Mono({
 
 export const metadata = {
   metadataBase: new URL("https://www.airi-profile.com"),
+
   title: {
     default: "AIRI",
     template: "%s | AIRI",
   },
+
   icons: {
     icon: [
       {
@@ -31,8 +35,10 @@ export const metadata = {
       },
     ],
   },
+
   description:
     "AIRI's personal website. 日々の記録、ブログ、プロジェクトを紹介しています。",
+
   openGraph: {
     title: "AIRI",
     description: "AIRI's Profile",
@@ -43,7 +49,41 @@ export const metadata = {
   },
 };
 
-export default function RootLayout({ children }) {
+export default async function RootLayout({ children }) {
+  let popupAds = [];
+
+  try {
+    const result = await getData("ads");
+
+    const allAds = result?.data || [];
+
+    popupAds = allAds
+      .filter((ad) => {
+        const data = ad.data || {};
+
+        return (
+          ad.status === "published" &&
+          data.placement === "popup" &&
+          data.status === "active"
+        );
+      })
+      .map((ad) => ({
+        id: ad.id,
+        record_status: ad.status,
+        ...ad.data,
+      }));
+
+    console.log(
+      "ポップアップ広告取得成功"
+    );
+
+  } catch (error) {
+    console.error(
+      "広告データの取得に失敗しました:",
+      error
+    );
+  }
+
   return (
     <html
       lang="ja"
@@ -63,7 +103,6 @@ export default function RootLayout({ children }) {
             border-b-2
           "
         >
-
           {/* Logo */}
           <Link
             href="/"
@@ -89,41 +128,29 @@ export default function RootLayout({ children }) {
 
           {/* PC Navigation */}
           <nav className="hidden md:flex items-center text-black gap-6">
-
-            <Link
-              href="/"
-              className="text-sm font-serif font-medium text-black hover:underline"
-            >
+            <Link href="/" className="text-sm font-serif font-medium hover:underline">
               Home
             </Link>
 
-            <Link
-              href="/about"
-              className="text-sm font-serif font-medium text-black hover:underline"
-            >
+            <Link href="/about" className="text-sm font-serif font-medium hover:underline">
               About
             </Link>
 
-            <Link
-              href="/blog"
-              className="text-sm font-serif font-medium text-black hover:underline"
-            >
+            <Link href="/blog" className="text-sm font-serif font-medium hover:underline">
               Blog
             </Link>
 
-            <Link
-              href="/project"
-              className="text-sm font-serif font-medium text-black hover:underline"
-            >
+            <Link href="/project" className="text-sm font-serif font-medium hover:underline">
               Project
             </Link>
-
           </nav>
 
           {/* Mobile Menu */}
           <MobileMenu />
-
         </header>
+
+        {/* Popup Advertisement */}
+        <RandomPopupAd ads={popupAds} />
 
         {/* Main */}
         <main className="flex-1 w-full">
