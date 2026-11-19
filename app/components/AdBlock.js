@@ -1,40 +1,145 @@
 
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useCallback,
+} from "react";
 
+/**
+ * 広告データの正規化
+ */
 function getAdData(ad) {
   const data = ad?.data || ad || {};
 
   return {
     id: ad?.id || data.id,
-    title: ad?.title || data.title || "Advertisement",
-    placement: ad?.placement || data.placement || "inline",
-    creativeType: ad?.creative_type || data.creative_type,
-    image: ad?.image || data.image,
-    html: ad?.html || data.html,
-    videoUrl: ad?.video_url || data.video_url,
-    link: ad?.link || {
-      url: data.link_url,
-      target: data.link_target,
-      rel: data.link_rel,
-    },
-    active: ad?.active ?? data.active ?? data.status === "active",
-    deliveryStatus: ad?.delivery_status,
+
+    title:
+      data.title ||
+      ad?.title ||
+      "Advertisement",
+
+    placement:
+      data.placement ||
+      ad?.placement ||
+      "inline",
+
+    creativeType:
+      data.creative_type ||
+      ad?.creative_type,
+
+    image:
+      data.image ||
+      ad?.image,
+
+    html:
+      data.html ||
+      ad?.html,
+
+    videoUrl:
+      data.video_url ||
+      ad?.video_url,
+
+    linkUrl:
+      data.link_url ||
+      ad?.link_url,
+
+    linkTarget:
+      data.link_target ||
+      ad?.link_target,
+
+    linkRel:
+      data.link_rel ||
+      ad?.link_rel,
+
+    active:
+      data.status === "active" ||
+      data.active === true ||
+      ad?.active === true,
+
+    startAt:
+      data.start_at ||
+      ad?.start_at,
+
+    endAt:
+      data.end_at ||
+      ad?.end_at,
   };
 }
 
 /**
- * HTML広告専用 iframe
- * Tailwind CSSを独立して読み込む
+ * 配信期間チェック
  */
-function HtmlAdvertisement({ html, title, popup = false, onHeight }) {
-  const srcDoc = `
+function isAdAvailable(ad) {
+  if (!ad.active) return false;
+
+  const now = Date.now();
+
+  if (ad.startAt) {
+    const start = new Date(ad.startAt).getTime();
+
+    if (Number.isFinite(start) && now < start) {
+      return false;
+    }
+  }
+
+  if (ad.endAt) {
+    const end = new Date(ad.endAt).getTime();
+
+    if (Number.isFinite(end) && now > end) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+/**
+ * 安全なリンク
+ */
+function getSafeLink(url) {
+  if (!url || typeof url !== "string") {
+    return null;
+  }
+
+  try {
+    const parsed = new URL(url);
+
+    if (
+      !["https:", "http:"].includes(
+        parsed.protocol
+      )
+    ) {
+      return null;
+    }
+
+    return parsed.href;
+
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * HTML広告iframe
+ */
+function HtmlAdFrame({ html, title, onHeight, height }) {
+  const iframeRef = useRef(null);
+
+  const srcDoc = useMemo(() => `
     <!DOCTYPE html>
     <html lang="ja">
       <head>
         <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1">
+
+        <meta
+          name="viewport"
+          content="width=device-width, initial-scale=1"
+        >
 
         <script src="https://cdn.tailwindcss.com"></script>
 
@@ -47,18 +152,15 @@ function HtmlAdvertisement({ html, title, popup = false, onHeight }) {
             margin: 0;
             padding: 0;
             width: 100%;
-            overflow: hidden;
+            overflow-x: hidden;
           }
 
           body {
             font-family: Arial, sans-serif;
           }
 
-          img, video {
-            max-width: 100%;
-          }
-
           img {
+            max-width: 100%;
             height: auto;
           }
 
@@ -75,16 +177,13 @@ function HtmlAdvertisement({ html, title, popup = false, onHeight }) {
         </div>
 
         <script>
-          function reportHeight() {
-            const root = document.getElementById("ad-root");
+          const root = document.getElementById("ad-root");
 
+          function reportHeight() {
             if (!root) return;
 
             const height = Math.ceil(
-              Math.max(
-                root.scrollHeight,
-                root.getBoundingClientRect().height
-              )
+              root.getBoundingClientRect().height
             );
 
             parent.postMessage({
@@ -93,188 +192,141 @@ function HtmlAdvertisement({ html, title, popup = false, onHeight }) {
             }, "*");
           }
 
-          window.addEventListener("load", reportHeight);
+          const observer = new ResizeObserver(reportHeight);
 
+          observer.observe(root);
+
+          window.addEventListener("load", reportHeight);
           window.addEventListener("resize", reportHeight);
 
           if (document.fonts) {
             document.fonts.ready.then(reportHeight);
           }
 
-          const observer = new ResizeObserver(reportHeight);
-
-          observer.observe(document.documentElement);
-
-          observer.observe(document.body);
-
-          window.addEventListener("message", (event) => {
-            if (event.data?.type === "AD_REFRESH") {
-              reportHeight();
-            }
-          });
-
-          setTimeout(reportHeight, 500);
-          setTimeout(reportHeight, 1500);
+          setTimeout(reportHeight, 300);
+          setTimeout(reportHeight, 1000);
+          setTimeout(reportHeight, 2000);
         </script>
       </body>
     </html>
-  `;
+  `, [html]);
+
+  useEffect(() => {
+    const handleMessage = (event) => {
+      if (
+        event.source !==
+        iframeRef.current?.contentWindow
+      ) {
+        return;
+      }
+
+      if (event.data?.type !== "AD_HEIGHT") {
+        return;
+      }
+
+      const newHeight = Number(event.data.height);
+
+      if (
+        Number.isFinite(newHeight) &&
+        newHeight > 0
+      ) {
+        onHeight(
+          Math.min(Math.ceil(newHeight), 5000)
+        );
+      }
+    };
+
+    window.addEventListener(
+      "message",
+      handleMessage
+    );
+
+    return () => {
+      window.removeEventListener(
+        "message",
+        handleMessage
+      );
+    };
+  }, [onHeight]);
 
   return (
     <iframe
+      ref={iframeRef}
       title={title}
       srcDoc={srcDoc}
-      sandbox="allow-scripts allow-same-origin"
-      onLoad={(event) => {
-        event.currentTarget.contentWindow?.postMessage(
-          { type: "AD_REFRESH" },
-          "*"
-        );
-      }}
+      sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"
+      loading="eager"
       className="block w-full border-0"
       style={{
-        height: popup ? "auto" : "auto",
-        minHeight: popup ? 200 : 180,
-      }}
-      ref={(element) => {
-        if (!element) return;
-
-        element.dataset.adFrame = "true";
+        height: `${height}px`,
       }}
     />
   );
 }
 
 /**
- * 広告クリエイティブ
+ * 広告コンテンツ
  */
-function AdCreative({ ad, popup = false }) {
-  const [height, setHeight] = useState(300);
+function AdCreative({ ad, onHeight, height }) {
+  const safeUrl = getSafeLink(ad.linkUrl);
 
-  useEffect(() => {
-    if (ad.creativeType !== "html") return;
+  const target =
+    ad.linkTarget === "_blank"
+      ? "_blank"
+      : "_self";
 
-    const handleMessage = (event) => {
-      if (
-        event.data?.type === "AD_HEIGHT" &&
-        Number.isFinite(event.data.height) &&
-        event.data.height > 0
-      ) {
-        setHeight(Math.min(event.data.height, 5000));
-      }
-    };
-
-    window.addEventListener("message", handleMessage);
-
-    return () => {
-      window.removeEventListener("message", handleMessage);
-    };
-  }, [ad.creativeType]);
-
-  const linkUrl = ad.link?.url;
-
-  const linkProps = {
-    href: linkUrl,
-    target: ad.link?.target === "_blank" ? "_blank" : "_self",
-    rel: "sponsored noopener noreferrer",
-  };
+  const rel =
+    target === "_blank"
+      ? "sponsored noopener noreferrer"
+      : "sponsored";
 
   return (
-    <div className="w-full min-w-0">
+    <div className="relative w-full min-w-0">
 
+      {/* Image */}
       {ad.creativeType === "image" && ad.image && (
         <div>
-          {linkUrl ? (
-            <a {...linkProps}>
+          {safeUrl ? (
+            <a
+              href={safeUrl}
+              target={target}
+              rel={rel}
+            >
               <img
                 src={ad.image}
                 alt={ad.title}
-                className="block w-full h-auto"
+                className="block h-auto w-full"
               />
             </a>
           ) : (
             <img
               src={ad.image}
               alt={ad.title}
-              className="block w-full h-auto"
+              className="block h-auto w-full"
             />
           )}
         </div>
       )}
 
+      {/* HTML */}
       {ad.creativeType === "html" && ad.html && (
-        <iframe
+        <HtmlAdFrame
+          html={ad.html}
           title={ad.title}
-          srcDoc={`
-            <!DOCTYPE html>
-            <html lang="ja">
-              <head>
-                <meta charset="UTF-8">
-                <meta name="viewport" content="width=device-width, initial-scale=1">
-                <script src="https://cdn.tailwindcss.com"></script>
-                <style>
-                  * { box-sizing: border-box; }
-                  html, body {
-                    margin: 0;
-                    padding: 0;
-                    width: 100%;
-                    overflow: hidden;
-                  }
-                  body { font-family: Arial, sans-serif; }
-                  img, video { max-width: 100%; height: auto; }
-                  #ad-root { width: 100%; }
-                </style>
-              </head>
-              <body>
-                <div id="ad-root">${ad.html}</div>
-                <script>
-                  function report() {
-                    const root = document.getElementById("ad-root");
-                    if (!root) return;
-
-                    parent.postMessage({
-                      type: "AD_HEIGHT",
-                      height: Math.ceil(root.getBoundingClientRect().height)
-                    }, "*");
-                  }
-
-                  new ResizeObserver(report).observe(
-                    document.getElementById("ad-root")
-                  );
-
-                  window.addEventListener("load", report);
-                  setTimeout(report, 500);
-                  setTimeout(report, 1500);
-                </script>
-              </body>
-            </html>
-          `}
-          sandbox="allow-scripts allow-same-origin"
-          className="block w-full border-0"
-          style={{ height: `${height}px` }}
-          loading="eager"
+          onHeight={onHeight}
+          height={height}
         />
       )}
 
+      {/* Video */}
       {ad.creativeType === "video" && ad.videoUrl && (
         <video
           src={ad.videoUrl}
           controls
           playsInline
           preload="metadata"
-          className="w-full max-h-[420px] bg-black"
+          className="block max-h-[500px] w-full bg-black"
         />
-      )}
-
-      {linkUrl && ad.creativeType !== "image" && (
-        <div className="mt-3">
-          <a
-            {...linkProps}
-            className="text-xs underline underline-offset-4 text-neutral-500 hover:text-neutral-900"
-          >
-            広告を見る →
-          </a>
-        </div>
       )}
 
     </div>
@@ -282,199 +334,154 @@ function AdCreative({ ad, popup = false }) {
 }
 
 /**
- * 広告ブロック
+ * Main Advertisement Component
  */
-export default function AdBlock({ ad }) {
+export default function AdBlock({ ad, onClose }) {
+  const data = useMemo(
+    () => getAdData(ad),
+    [ad]
+  );
+
   const [open, setOpen] = useState(true);
   const [canClose, setCanClose] = useState(false);
   const [height, setHeight] = useState(300);
-  const [scale, setScale] = useState(1);
 
-  const data = getAdData(ad);
+  const isPopup = data.placement === "popup";
 
+  /**
+   * 3秒後に閉じられるようにする
+   */
   useEffect(() => {
-    if (data.placement !== "popup" || !open) return;
+    if (!isPopup || !open) return;
 
     setCanClose(false);
 
-    const timer = setTimeout(() => {
+    const timer = window.setTimeout(() => {
       setCanClose(true);
     }, 3000);
 
-    return () => clearTimeout(timer);
-  }, [data.placement, open, data.id]);
-
-  const updateScale = useCallback(() => {
-    if (typeof window === "undefined") return;
-
-    const availableHeight = window.innerHeight * 0.78;
-
-    setScale(
-      Math.min(1, availableHeight / Math.max(height, 1))
-    );
-  }, [height]);
-
-  useEffect(() => {
-    updateScale();
-
-    window.addEventListener("resize", updateScale);
-
     return () => {
-      window.removeEventListener("resize", updateScale);
+      window.clearTimeout(timer);
     };
-  }, [updateScale]);
+  }, [isPopup, open, data.id]);
 
-  useEffect(() => {
-    const handleMessage = (event) => {
-      if (
-        event.data?.type === "AD_HEIGHT" &&
-        Number.isFinite(event.data.height) &&
-        event.data.height > 0
-      ) {
-        setHeight(Math.min(event.data.height, 5000));
-      }
-    };
-
-    window.addEventListener("message", handleMessage);
-
-    return () => {
-      window.removeEventListener("message", handleMessage);
-    };
+  /**
+   * 広告の高さ更新
+   */
+  const updateHeight = useCallback((newHeight) => {
+    setHeight((previous) => {
+      return previous === newHeight
+        ? previous
+        : newHeight;
+    });
   }, []);
 
-  if (!data.active) return null;
+  /**
+   * 広告を閉じる
+   */
+  const closeAd = () => {
+    setOpen(false);
 
-  if (
-    ["inactive", "expired", "paused"].includes(
-      data.deliveryStatus
-    )
-  ) {
+    if (onClose) {
+      onClose();
+    }
+  };
+
+  if (!isAdAvailable(data)) {
     return null;
   }
 
-  if (data.placement === "popup") {
+  /**
+   * Popup
+   */
+  if (isPopup) {
     if (!open) return null;
 
-    const scaledHeight = height * scale;
-
     return (
-      <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 p-3 sm:p-5">
+      <div
+        className="
+          fixed inset-0 z-[9999]
+          flex items-center justify-center
+          bg-black/65
+          p-3 sm:p-5
+        "
+        role="presentation"
+      >
 
         <div
           role="dialog"
           aria-modal="true"
           aria-label={data.title}
-          className="relative w-full max-w-[560px] overflow-hidden bg-white shadow-2xl"
+          className="
+            relative flex w-full
+            max-w-[560px]
+            flex-col overflow-hidden
+            bg-white shadow-2xl
+          "
           style={{
-            height: `${scaledHeight + 64}px`,
             maxHeight: "90dvh",
           }}
         >
 
-          <div className="flex items-center justify-between px-4 py-3 border-b border-neutral-100">
-            <span className="text-[9px] tracking-[0.25em] text-neutral-400 uppercase">
+          {/* Header */}
+          <div
+            className="
+              flex h-11 shrink-0
+              items-center justify-between
+              border-b border-neutral-100
+              bg-white px-4
+            "
+          >
+
+            <span
+              className="
+                text-[9px] tracking-[0.25em]
+                text-neutral-400 uppercase
+              "
+            >
               Advertisement
             </span>
 
             <button
               type="button"
-              onClick={() => {
-                if (canClose) setOpen(false);
-              }}
               disabled={!canClose}
+              onClick={closeAd}
               aria-label="広告を閉じる"
-              className={`h-7 w-7 text-xl transition ${
-                canClose
-                  ? "text-neutral-500 hover:text-black cursor-pointer"
-                  : "text-neutral-200 cursor-not-allowed"
-              }`}
+              className={`
+                flex h-8 w-8
+                items-center justify-center
+                rounded-full text-xl transition
+                ${
+                  canClose
+                    ? "text-neutral-700 hover:bg-neutral-100"
+                    : "cursor-not-allowed text-neutral-200"
+                }
+              `}
             >
               ×
             </button>
+
           </div>
 
+          {/* Advertisement Content */}
           <div
-            className="w-full overflow-hidden"
-            style={{
-              height: `${scaledHeight}px`,
-            }}
+            className="
+              min-h-0 w-full
+              overflow-y-auto
+              overscroll-contain
+            "
           >
-            <div
-              style={{
-                width: "100%",
-                height: `${height}px`,
-                transform: `scale(${scale})`,
-                transformOrigin: "top center",
-              }}
-            >
-              <div className="w-full">
-                {data.creativeType === "image" && data.image && (
-                  <AdCreative ad={data} popup />
-                )}
-
-                {data.creativeType === "html" && data.html && (
-                  <iframe
-                    title={data.title}
-                    srcDoc={`
-                      <!DOCTYPE html>
-                      <html lang="ja">
-                        <head>
-                          <meta charset="UTF-8">
-                          <meta name="viewport" content="width=device-width, initial-scale=1">
-                          <script src="https://cdn.tailwindcss.com"></script>
-                          <style>
-                            * { box-sizing: border-box; }
-                            html, body {
-                              margin: 0;
-                              padding: 0;
-                              width: 100%;
-                              overflow: hidden;
-                            }
-                            body { font-family: Arial, sans-serif; }
-                            img, video { max-width: 100%; height: auto; }
-                            #ad-root { width: 100%; }
-                          </style>
-                        </head>
-                        <body>
-                          <div id="ad-root">${data.html}</div>
-                          <script>
-                            function report() {
-                              const root = document.getElementById("ad-root");
-                              if (!root) return;
-
-                              parent.postMessage({
-                                type: "AD_HEIGHT",
-                                height: Math.ceil(root.getBoundingClientRect().height)
-                              }, "*");
-                            }
-
-                            new ResizeObserver(report).observe(
-                              document.getElementById("ad-root")
-                            );
-
-                            window.addEventListener("load", report);
-                            setTimeout(report, 500);
-                            setTimeout(report, 1500);
-                          </script>
-                        </body>
-                      </html>
-                    `}
-                    sandbox="allow-scripts allow-same-origin"
-                    className="block w-full border-0"
-                    style={{ height: `${height}px` }}
-                  />
-                )}
-
-                {data.creativeType === "video" && (
-                  <AdCreative ad={data} popup />
-                )}
-              </div>
-            </div>
+            <AdCreative
+              ad={data}
+              onHeight={updateHeight}
+              height={height}
+            />
           </div>
 
+          {/* Close Timer */}
           {!canClose && (
-            <div className="absolute bottom-0 left-0 w-full h-1 bg-neutral-100">
-              <div className="h-full bg-neutral-800 animate-pulse w-full" />
+            <div className="h-1 w-full shrink-0 bg-neutral-100">
+              <div className="h-full w-full animate-pulse bg-neutral-800" />
             </div>
           )}
 
@@ -483,18 +490,36 @@ export default function AdBlock({ ad }) {
     );
   }
 
+  /**
+   * Inline Advertisement
+   */
   return (
-    <aside className="my-12 w-full border border-neutral-200 p-4 md:p-6">
+    <aside
+      className="
+        relative my-12 w-full
+        border border-neutral-200
+        p-4 md:p-6
+      "
+    >
+
       <div className="mb-4 flex items-center justify-between">
+
         <span className="text-[9px] tracking-[0.3em] text-neutral-400 uppercase">
           Sponsored
         </span>
+
         <span className="text-[9px] text-neutral-300">
           Advertisement
         </span>
+
       </div>
 
-      <AdCreative ad={data} />
+      <AdCreative
+        ad={data}
+        onHeight={updateHeight}
+        height={height}
+      />
+
     </aside>
   );
 }
