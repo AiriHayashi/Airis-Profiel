@@ -1,0 +1,71 @@
+
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #000000;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+/* Menu Items */
+.menu-item {
+  font-family: serif;
+  font-size: 2.5rem;
+
+  opacity: 0;
+  transform: translateY(20px);
+
+  transition:
+    opacity 0.5s ease,
+    transform 0.5s ease;
+
+  pointer-events: none;
+}
+
+/* Menu Open */
+#mobile-menu:checked ~ nav .menu-item {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+/* Stagger Animation */
+#mobile-menu:checked ~ nav .menu-item:nth-child(1) {
+  transition-delay: 0.1s;
+}
+
+#mobile-menu:checked ~ nav .menu-item:nth-child(2) {
+  transition-delay: 0.2s;
+}
+
+#mobile-menu:checked ~ nav .menu-item:nth-child(3) {
+  transition-delay: 0.3s;
+}
+
+#mobile-menu:checked ~ nav .menu-item:nth-child(4) {
+  transition-delay: 0.4s;
+}
+
+/* Hover */
+.menu-item:hover {
+  opacity: 0.5;
+}
+
+/* Reduced Motion */
+@media (prefers-reduced-motion: reduce) {
+  .menu-item {
+    transition: none;
+  }
+}
