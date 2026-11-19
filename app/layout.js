@@ -3,9 +3,8 @@ import { Geist, Geist_Mono } from "next/font/google";
 import Image from "next/image";
 import Link from "next/link";
 import "./globals.css";
-
-import getData from "@/lib/blog";
-import RandomPopupAd from "@/app/components/RandomPopupAd";
+import { Suspense } from "react";
+import PopupAdLoader from "@/app/components/PopupAdLoader";
 import Footer from "@/app/components/Footer";
 import MobileMenu from "@/app/components/MobileMenu";
 
@@ -50,41 +49,6 @@ export const metadata = {
 };
 
 export default async function RootLayout({ children }) {
-  let popupAds = [];
-
-  try {
-    const result = await getData("ads");
-
-    const allAds = result?.data || [];
-
-    popupAds = allAds
-      .filter((ad) => {
-        const data = ad.data || {};
-
-        return (
-          ad.status === "published" &&
-          data.placement === "popup" &&
-          data.status === "active"
-        );
-      })
-      .map((ad) => ({
-        id: ad.id,
-        record_status: ad.status,
-        ...ad.data,
-      }));
-
-    console.log(
-      "取得したポップアップ広告:",
-      popupAds.length,
-      popupAds
-    );
-
-  } catch (error) {
-    console.error(
-      "広告データの取得に失敗しました:",
-      error
-    );
-  }
 
   return (
     <html
@@ -152,7 +116,9 @@ export default async function RootLayout({ children }) {
         </header>
 
         {/* Popup Advertisement */}
-        <RandomPopupAd ads={popupAds} />
+        <Suspense fallback={null}>
+  <PopupAdLoader />
+</Suspense>
 
         {/* Main */}
         <main className="flex-1 w-full">
