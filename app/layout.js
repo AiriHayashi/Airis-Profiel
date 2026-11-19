@@ -74,7 +74,9 @@ export default async function RootLayout({ children }) {
       }));
 
     console.log(
-      "ポップアップ広告取得成功"
+      "取得したポップアップ広告:",
+      popupAds.length,
+      popupAds
     );
 
   } catch (error) {
