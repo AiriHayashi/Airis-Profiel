@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 
 function getAdData(ad) {
   const data = ad?.data || ad || {};
@@ -24,20 +24,164 @@ function getAdData(ad) {
   };
 }
 
-function AdCreative({ ad }) {
+/**
+ * HTML広告専用 iframe
+ * Tailwind CSSを独立して読み込む
+ */
+function HtmlAdvertisement({ html, title, popup = false, onHeight }) {
+  const srcDoc = `
+    <!DOCTYPE html>
+    <html lang="ja">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+
+        <script src="https://cdn.tailwindcss.com"></script>
+
+        <style>
+          * {
+            box-sizing: border-box;
+          }
+
+          html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            overflow: hidden;
+          }
+
+          body {
+            font-family: Arial, sans-serif;
+          }
+
+          img, video {
+            max-width: 100%;
+          }
+
+          img {
+            height: auto;
+          }
+
+          #ad-root {
+            width: 100%;
+            overflow: hidden;
+          }
+        </style>
+      </head>
+
+      <body>
+        <div id="ad-root">
+          ${html}
+        </div>
+
+        <script>
+          function reportHeight() {
+            const root = document.getElementById("ad-root");
+
+            if (!root) return;
+
+            const height = Math.ceil(
+              Math.max(
+                root.scrollHeight,
+                root.getBoundingClientRect().height
+              )
+            );
+
+            parent.postMessage({
+              type: "AD_HEIGHT",
+              height
+            }, "*");
+          }
+
+          window.addEventListener("load", reportHeight);
+
+          window.addEventListener("resize", reportHeight);
+
+          if (document.fonts) {
+            document.fonts.ready.then(reportHeight);
+          }
+
+          const observer = new ResizeObserver(reportHeight);
+
+          observer.observe(document.documentElement);
+
+          observer.observe(document.body);
+
+          window.addEventListener("message", (event) => {
+            if (event.data?.type === "AD_REFRESH") {
+              reportHeight();
+            }
+          });
+
+          setTimeout(reportHeight, 500);
+          setTimeout(reportHeight, 1500);
+        </script>
+      </body>
+    </html>
+  `;
+
+  return (
+    <iframe
+      title={title}
+      srcDoc={srcDoc}
+      sandbox="allow-scripts allow-same-origin"
+      onLoad={(event) => {
+        event.currentTarget.contentWindow?.postMessage(
+          { type: "AD_REFRESH" },
+          "*"
+        );
+      }}
+      className="block w-full border-0"
+      style={{
+        height: popup ? "auto" : "auto",
+        minHeight: popup ? 200 : 180,
+      }}
+      ref={(element) => {
+        if (!element) return;
+
+        element.dataset.adFrame = "true";
+      }}
+    />
+  );
+}
+
+/**
+ * 広告クリエイティブ
+ */
+function AdCreative({ ad, popup = false }) {
+  const [height, setHeight] = useState(300);
+
+  useEffect(() => {
+    if (ad.creativeType !== "html") return;
+
+    const handleMessage = (event) => {
+      if (
+        event.data?.type === "AD_HEIGHT" &&
+        Number.isFinite(event.data.height) &&
+        event.data.height > 0
+      ) {
+        setHeight(Math.min(event.data.height, 5000));
+      }
+    };
+
+    window.addEventListener("message", handleMessage);
+
+    return () => {
+      window.removeEventListener("message", handleMessage);
+    };
+  }, [ad.creativeType]);
+
   const linkUrl = ad.link?.url;
 
   const linkProps = {
     href: linkUrl,
     target: ad.link?.target === "_blank" ? "_blank" : "_self",
-    rel: ad.link?.target === "_blank"
-      ? "sponsored noopener noreferrer"
-      : "sponsored",
+    rel: "sponsored noopener noreferrer",
   };
 
   return (
-    <div className="w-full">
-      {/* Image Advertisement */}
+    <div className="w-full min-w-0">
+
       {ad.creativeType === "image" && ad.image && (
         <div>
           {linkUrl ? (
@@ -45,52 +189,73 @@ function AdCreative({ ad }) {
               <img
                 src={ad.image}
                 alt={ad.title}
-                className="w-full h-auto block"
+                className="block w-full h-auto"
               />
             </a>
           ) : (
             <img
               src={ad.image}
               alt={ad.title}
-              className="w-full h-auto block"
+              className="block w-full h-auto"
             />
           )}
         </div>
       )}
 
-      {/* HTML Advertisement */}
       {ad.creativeType === "html" && ad.html && (
         <iframe
           title={ad.title}
           srcDoc={`
             <!DOCTYPE html>
-            <html>
+            <html lang="ja">
               <head>
+                <meta charset="UTF-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1">
+                <script src="https://cdn.tailwindcss.com"></script>
                 <style>
                   * { box-sizing: border-box; }
-                  body {
+                  html, body {
                     margin: 0;
-                    padding: 16px;
-                    font-family: sans-serif;
-                    overflow-wrap: anywhere;
+                    padding: 0;
+                    width: 100%;
+                    overflow: hidden;
                   }
-                  img, video {
-                    max-width: 100%;
-                    height: auto;
-                  }
+                  body { font-family: Arial, sans-serif; }
+                  img, video { max-width: 100%; height: auto; }
+                  #ad-root { width: 100%; }
                 </style>
               </head>
-              <body>${ad.html}</body>
+              <body>
+                <div id="ad-root">${ad.html}</div>
+                <script>
+                  function report() {
+                    const root = document.getElementById("ad-root");
+                    if (!root) return;
+
+                    parent.postMessage({
+                      type: "AD_HEIGHT",
+                      height: Math.ceil(root.getBoundingClientRect().height)
+                    }, "*");
+                  }
+
+                  new ResizeObserver(report).observe(
+                    document.getElementById("ad-root")
+                  );
+
+                  window.addEventListener("load", report);
+                  setTimeout(report, 500);
+                  setTimeout(report, 1500);
+                </script>
+              </body>
             </html>
           `}
-          sandbox=""
-          className="w-full min-h-[180px] border-0 bg-white"
-          loading="lazy"
+          sandbox="allow-scripts allow-same-origin"
+          className="block w-full border-0"
+          style={{ height: `${height}px` }}
+          loading="eager"
         />
       )}
 
-      {/* Video Advertisement */}
       {ad.creativeType === "video" && ad.videoUrl && (
         <video
           src={ad.videoUrl}
@@ -101,79 +266,229 @@ function AdCreative({ ad }) {
         />
       )}
 
-      {/* External Link */}
-      {linkUrl && (
+      {linkUrl && ad.creativeType !== "image" && (
         <div className="mt-3">
           <a
             {...linkProps}
-            className="text-xs underline underline-offset-4 text-neutral-500 hover:text-neutral-900 transition"
+            className="text-xs underline underline-offset-4 text-neutral-500 hover:text-neutral-900"
           >
             広告を見る →
           </a>
         </div>
       )}
+
     </div>
   );
 }
 
+/**
+ * 広告ブロック
+ */
 export default function AdBlock({ ad }) {
   const [open, setOpen] = useState(true);
-
-  if (!ad) return null;
+  const [canClose, setCanClose] = useState(false);
+  const [height, setHeight] = useState(300);
+  const [scale, setScale] = useState(1);
 
   const data = getAdData(ad);
 
-  // 広告の配信状態を確認
+  useEffect(() => {
+    if (data.placement !== "popup" || !open) return;
+
+    setCanClose(false);
+
+    const timer = setTimeout(() => {
+      setCanClose(true);
+    }, 3000);
+
+    return () => clearTimeout(timer);
+  }, [data.placement, open, data.id]);
+
+  const updateScale = useCallback(() => {
+    if (typeof window === "undefined") return;
+
+    const availableHeight = window.innerHeight * 0.78;
+
+    setScale(
+      Math.min(1, availableHeight / Math.max(height, 1))
+    );
+  }, [height]);
+
+  useEffect(() => {
+    updateScale();
+
+    window.addEventListener("resize", updateScale);
+
+    return () => {
+      window.removeEventListener("resize", updateScale);
+    };
+  }, [updateScale]);
+
+  useEffect(() => {
+    const handleMessage = (event) => {
+      if (
+        event.data?.type === "AD_HEIGHT" &&
+        Number.isFinite(event.data.height) &&
+        event.data.height > 0
+      ) {
+        setHeight(Math.min(event.data.height, 5000));
+      }
+    };
+
+    window.addEventListener("message", handleMessage);
+
+    return () => {
+      window.removeEventListener("message", handleMessage);
+    };
+  }, []);
+
+  if (!data.active) return null;
+
   if (
-    !data.active ||
-    data.deliveryStatus === "inactive" ||
-    data.deliveryStatus === "expired" ||
-    data.deliveryStatus === "paused"
+    ["inactive", "expired", "paused"].includes(
+      data.deliveryStatus
+    )
   ) {
     return null;
   }
 
-  // Popup Advertisement
   if (data.placement === "popup") {
     if (!open) return null;
 
+    const scaledHeight = height * scale;
+
     return (
-      <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 p-5">
+      <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 p-3 sm:p-5">
+
         <div
           role="dialog"
           aria-modal="true"
           aria-label={data.title}
-          className="relative w-full max-w-lg max-h-[85vh] overflow-y-auto bg-white shadow-2xl"
+          className="relative w-full max-w-[560px] overflow-hidden bg-white shadow-2xl"
+          style={{
+            height: `${scaledHeight + 64}px`,
+            maxHeight: "90dvh",
+          }}
         >
-          <button
-            type="button"
-            onClick={() => setOpen(false)}
-            aria-label="広告を閉じる"
-            className="absolute top-3 right-3 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-white/90 text-xl text-neutral-700 shadow"
-          >
-            ×
-          </button>
 
-          <div className="p-5 pt-12">
-            <p className="mb-4 text-[10px] tracking-[0.25em] text-neutral-400 uppercase">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-neutral-100">
+            <span className="text-[9px] tracking-[0.25em] text-neutral-400 uppercase">
               Advertisement
-            </p>
+            </span>
 
-            <AdCreative ad={data} />
+            <button
+              type="button"
+              onClick={() => {
+                if (canClose) setOpen(false);
+              }}
+              disabled={!canClose}
+              aria-label="広告を閉じる"
+              className={`h-7 w-7 text-xl transition ${
+                canClose
+                  ? "text-neutral-500 hover:text-black cursor-pointer"
+                  : "text-neutral-200 cursor-not-allowed"
+              }`}
+            >
+              ×
+            </button>
           </div>
+
+          <div
+            className="w-full overflow-hidden"
+            style={{
+              height: `${scaledHeight}px`,
+            }}
+          >
+            <div
+              style={{
+                width: "100%",
+                height: `${height}px`,
+                transform: `scale(${scale})`,
+                transformOrigin: "top center",
+              }}
+            >
+              <div className="w-full">
+                {data.creativeType === "image" && data.image && (
+                  <AdCreative ad={data} popup />
+                )}
+
+                {data.creativeType === "html" && data.html && (
+                  <iframe
+                    title={data.title}
+                    srcDoc={`
+                      <!DOCTYPE html>
+                      <html lang="ja">
+                        <head>
+                          <meta charset="UTF-8">
+                          <meta name="viewport" content="width=device-width, initial-scale=1">
+                          <script src="https://cdn.tailwindcss.com"></script>
+                          <style>
+                            * { box-sizing: border-box; }
+                            html, body {
+                              margin: 0;
+                              padding: 0;
+                              width: 100%;
+                              overflow: hidden;
+                            }
+                            body { font-family: Arial, sans-serif; }
+                            img, video { max-width: 100%; height: auto; }
+                            #ad-root { width: 100%; }
+                          </style>
+                        </head>
+                        <body>
+                          <div id="ad-root">${data.html}</div>
+                          <script>
+                            function report() {
+                              const root = document.getElementById("ad-root");
+                              if (!root) return;
+
+                              parent.postMessage({
+                                type: "AD_HEIGHT",
+                                height: Math.ceil(root.getBoundingClientRect().height)
+                              }, "*");
+                            }
+
+                            new ResizeObserver(report).observe(
+                              document.getElementById("ad-root")
+                            );
+
+                            window.addEventListener("load", report);
+                            setTimeout(report, 500);
+                            setTimeout(report, 1500);
+                          </script>
+                        </body>
+                      </html>
+                    `}
+                    sandbox="allow-scripts allow-same-origin"
+                    className="block w-full border-0"
+                    style={{ height: `${height}px` }}
+                  />
+                )}
+
+                {data.creativeType === "video" && (
+                  <AdCreative ad={data} popup />
+                )}
+              </div>
+            </div>
+          </div>
+
+          {!canClose && (
+            <div className="absolute bottom-0 left-0 w-full h-1 bg-neutral-100">
+              <div className="h-full bg-neutral-800 animate-pulse w-full" />
+            </div>
+          )}
+
         </div>
       </div>
     );
   }
 
-  // Normal / Inline Advertisement
   return (
-    <aside className="my-12 border border-neutral-200 p-4 md:p-6">
-      <div className="flex items-center justify-between mb-4">
+    <aside className="my-12 w-full border border-neutral-200 p-4 md:p-6">
+      <div className="mb-4 flex items-center justify-between">
         <span className="text-[9px] tracking-[0.3em] text-neutral-400 uppercase">
           Sponsored
         </span>
-
         <span className="text-[9px] text-neutral-300">
           Advertisement
         </span>
