@@ -3,6 +3,7 @@ import Image from "next/image";
 import Link from "next/link";
 import getData from "@/lib/blog";
 import { notFound } from "next/navigation";
+import AdBlock from "@/app/components/AdBlock";
 
 export const instant = false;
 /**
@@ -263,6 +264,12 @@ function RenderBlock({ block }) {
           </table>
         </div>
       );
+case "ad":
+  return (
+    <AdBlock
+      ad={block.ad}
+    />
+  );
 
     default:
       return null;
